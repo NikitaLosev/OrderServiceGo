@@ -13,13 +13,20 @@ import (
 // ConnectDB создаёт и возвращает пул соединений к базе данных по ENV-конфигу
 func ConnectDB() (*pgxpool.Pool, error) {
 	// формирование строки подключения из переменных окружения
+	get := func(k, def string) string {
+		if v, ok := os.LookupEnv(k); ok {
+			return v
+		}
+		return def
+	}
+
 	dbURL := fmt.Sprintf(
 		"postgres://%s:%s@%s:%s/%s",
-		os.Getenv("DB_USER"),
-		os.Getenv("DB_PASSWORD"),
-		os.Getenv("DB_HOST"),
-		os.Getenv("DB_PORT"),
-		os.Getenv("DB_NAME"),
+		get("DB_USER", "user"),
+		get("DB_PASSWORD", "pass"),
+		get("DB_HOST", "localhost"),
+		get("DB_PORT", "5432"),
+		get("DB_NAME", "orders"),
 	)
 
 	// создаём контекст с таймаутом для инициализации пула

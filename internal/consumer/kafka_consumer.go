@@ -1,53 +1,61 @@
-// consumer: получение сообщений из Kafka и сохранение заказов
 package consumer
 
 import (
-	"LZero/internal/service"
-	"LZero/pkg/models"
 	"context"
 	"encoding/json"
-	"log"
+	"errors"
+	"log/slog"
 
+	"LZero/internal/service"
+	"LZero/pkg/models"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/segmentio/kafka-go"
 )
 
-// StartKafkaConsumer инициализирует консьюмер Kafka и обрабатывает сообщения заказов
-func StartKafkaConsumer(pool *pgxpool.Pool) {
-	ctx := context.Background()
-	// инициализация Kafka reader
-	reader := kafka.NewReader(kafka.ReaderConfig{
-		Brokers: []string{"localhost:9092"},
-		Topic:   "orders_topic",
-		GroupID: "orders_consumer",
-	})
-	defer reader.Close()
+type Reader interface {
+	ReadMessage(ctx context.Context) (kafka.Message, error)
+	CommitMessages(ctx context.Context, msgs ...kafka.Message) error
+	Close() error
+}
 
-	log.Println("🔍 Консьюмер Kafka запущен")
-	// цикл чтения сообщений из топика
+type readerFactory func(brokers []string, topic, groupID string) Reader
+
+var newReader readerFactory = func(brokers []string, topic, groupID string) Reader {
+	return kafka.NewReader(kafka.ReaderConfig{Brokers: brokers, Topic: topic, GroupID: groupID})
+}
+
+func StartKafkaConsumer(ctx context.Context, brokers []string, topic, groupID string, pool *pgxpool.Pool, logger *slog.Logger) error {
+	r := newReader(brokers, topic, groupID)
+	defer r.Close()
+	return consume(ctx, r, func(o models.Order) error { return service.SaveOrder(pool, o) }, logger)
+}
+
+func consume(ctx context.Context, r Reader, save func(models.Order) error, logger *slog.Logger) error {
 	for {
-		msg, err := reader.ReadMessage(ctx)
+		msg, err := r.ReadMessage(ctx)
 		if err != nil {
-			log.Printf("Ошибка чтения сообщения: %v", err)
+			if errors.Is(err, context.Canceled) {
+				return nil
+			}
+			logger.Error("read", "err", err)
 			continue
 		}
-
-		// парсинг JSON в структуру Order
-		var order models.Order
-		if err := json.Unmarshal(msg.Value, &order); err != nil {
-			log.Printf("Ошибка парсинга JSON: %v", err)
+		var o models.Order
+		if err := json.Unmarshal(msg.Value, &o); err != nil {
+			logger.Error("json", "err", err)
 			continue
 		}
-
-		// сохранение заказа в БД и обновление кеша
-		if err := service.SaveOrder(pool, order); err != nil {
-			log.Printf("Ошибка сохранения заказа: %v", err)
+		if err := service.ValidateOrder(o); err != nil {
+			logger.Error("validate", "err", err)
 			continue
 		}
-		// подтверждение обработки сообщения (commit)
-		if err := reader.CommitMessages(ctx, msg); err != nil {
-			log.Printf("Ошибка коммита сообщения: %v", err)
+		if err := save(o); err != nil {
+			logger.Error("save", "err", err)
+			continue
 		}
-		log.Printf("Заказ сохранён: %s", order.OrderUID)
+		if err := r.CommitMessages(ctx, msg); err != nil {
+			logger.Error("commit", "err", err)
+		}
+		logger.Info("order saved", "uid", o.OrderUID)
 	}
 }

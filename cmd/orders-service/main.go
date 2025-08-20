@@ -1,40 +1,63 @@
-// orders-service: тест JSON, подключение к БД, восстановление кеша, запуск консьюмера и HTTP-сервера
 package main
 
 import (
+	"context"
+	"encoding/json"
+	"log/slog"
+	"os"
+	"os/signal"
+	"sync"
+
+	"LZero/internal/config"
 	"LZero/internal/consumer"
 	"LZero/internal/db"
 	"LZero/internal/server"
 	"LZero/internal/service"
 	"LZero/pkg/models"
-	"encoding/json"
-	"log"
-	"os"
 )
 
 func main() {
-	// Тест парсинга JSON (необязательно)
-	raw, _ := os.ReadFile("test.json")
-	var o models.Order
-	if err := json.Unmarshal(raw, &o); err == nil {
-		log.Printf("Парсинг JSON успешен, пример order_uid: %s", o.OrderUID)
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	cfg := config.Load()
+
+	raw, err := os.ReadFile("test.json")
+	if err == nil {
+		var o models.Order
+		_ = json.Unmarshal(raw, &o)
 	}
 
-	// Подключение к PostgreSQL
 	pool, err := db.ConnectDB()
 	if err != nil {
-		log.Fatalf("DB: %v", err)
+		logger.Error("db connect", "err", err)
+		return
 	}
 	defer pool.Close()
-	log.Println("Подключение к БД выполнено")
 
-	// Восстановление кеша из БД
 	if err := service.RestoreCache(pool); err != nil {
-		log.Fatalf("RestoreCache: %v", err)
+		logger.Error("restore cache", "err", err)
+		return
 	}
-	log.Printf("Кеш загружен: %d заказов", len(service.OrderCache))
 
-	// Запуск Kafka-консьюмера (в горутине) и HTTP-сервера
-	go consumer.StartKafkaConsumer(pool)
-	server.StartHTTPServer(pool)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	wg := sync.WaitGroup{}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := consumer.StartKafkaConsumer(ctx, cfg.KafkaBrokers, cfg.KafkaTopic, "orders_consumer", pool, logger); err != nil {
+			logger.Error("consumer", "err", err)
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := server.StartHTTPServer(ctx, cfg.HTTPAddr, pool, logger); err != nil {
+			logger.Error("http", "err", err)
+		}
+	}()
+
+	<-ctx.Done()
+	wg.Wait()
 }

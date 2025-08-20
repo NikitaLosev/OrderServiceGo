@@ -2,6 +2,7 @@
 package service
 
 import (
+	"LZero/internal/cache"
 	"LZero/pkg/models"
 	"context"
 	"fmt"
@@ -10,11 +11,14 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// OrderCache хранит последние заказы в памяти
-var OrderCache = make(map[string]models.Order)
+// OrderCache хранит последние заказы в памяти с TTL
+var OrderCache = cache.New(5 * time.Minute)
 
 // SaveOrder сохраняет заказ в БД и обновляет кеш
 func SaveOrder(pool *pgxpool.Pool, order models.Order) error {
+	if err := ValidateOrder(order); err != nil {
+		return err
+	}
 	// создаём контекст с таймаутом 5 секунд
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -22,7 +26,7 @@ func SaveOrder(pool *pgxpool.Pool, order models.Order) error {
 	// начинаем транзакцию
 	tx, err := pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("begin transaction failed: %v", err)
+		return fmt.Errorf("begin transaction failed: %w", err)
 	}
 	defer tx.Rollback(ctx)
 	// вставка в таблицу orders
@@ -89,7 +93,7 @@ func SaveOrder(pool *pgxpool.Pool, order models.Order) error {
 	}
 
 	// обновляем кеш
-	OrderCache[order.OrderUID] = order
+	OrderCache.Set(order.OrderUID, order)
 	return nil
 }
 
@@ -128,7 +132,7 @@ func RestoreCache(pool *pgxpool.Pool) error {
 			return fmt.Errorf("restoreCache: scan order failed: %w", err)
 		}
 
-		OrderCache[o.OrderUID] = o
+		OrderCache.Set(o.OrderUID, o)
 	}
 
 	return rows.Err()
