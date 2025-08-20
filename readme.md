@@ -1,94 +1,84 @@
-
 # OrderService
-Сервис для выдачи данных о заказе по его ID.
+
+OrderService — учебный сервис для чтения сообщений из Kafka,
+сохранения их в PostgreSQL и выдачи данных о заказе по его
+идентификатору через HTTP API.
+
+## Возможности
+
+* приём сообщений с информацией о заказах через Kafka;
+* сохранение заказов в PostgreSQL с идемпотентностью;
+* кэширование заказов в оперативной памяти;
+* REST API для получения заказа по ID;
+* статическая HTML‑страница для демонстрации работы.
+
+## Требования
+
+* Go 1.22+
+* PostgreSQL
+* Kafka и ZooKeeper
+* `make` (опционально)
 
 ## Структура проекта
 
-Проект организован в соответствии с best-practices для Go-приложений, с четким разделением обязанностей и удобством расширения.
-
-Структура репозитория:
-
-1. **cmd/**
-   - точка входа приложения (`orders-service`).
-   - скрипт продюсера для отправки сообщений в Kafka (`order-producer`).
-  
-2. **internal/**
-   1. **db/**
-      - Подключение к базе данных PostgreSQL (функция `ConnectDB()`).
-   2. **consumer/**
-      - Консьюмер Kafka (`StartKafkaConsumer`), читает сообщения и сохраняет заказы в БД.
-   3. **service/**
-      - Бизнес-логика: сохранение заказов (`SaveOrder`), кеширование, восстановление кеша (`RestoreCache`), доступ к данным (`GetOrderFromDB`).
-   4. **server/**
-      - HTTP-сервер, REST API и раздача статики.
-
-3. **pkg/**
-   - Модели данных (`Order`, `Delivery`, `Payment`, `Item`).
-
-4. **schema/**
-   - SQL-схема базы данных.
-
-5. **static/**
-   - HTML/JS страница для взаимодействия с API.
-
-6. **docker-compose.yml**
-   - Конфигурация Kafka и ZooKeeper.
-
-7. **test.json**
-   - Пример JSON-заказа для отправки в Kafka.
-
-8. **run.sh**
-   - Скрипт запуска проекта (экспорт ENV + запуск).
-
----
-
-## Как запускать сервис
-
-### Шаг 1: PostgreSQL
-
-```bash
-psql postgres <<'SQL'
-CREATE DATABASE orders_service_db;
-CREATE USER orders_service_user PASSWORD 'veryhardpassword12345';
-GRANT ALL PRIVILEGES ON DATABASE orders_service_db TO orders_service_user;
-SQL
-
-psql -U orders_service_user -d orders_service_db -f schema/schema.sql
-````
-
-### Шаг 2: Kafka и ZooKeeper
-
-```bash
-docker compose up -d
+```
+cmd/                # исполняемые файлы
+internal/
+  db/               # подключение к БД
+  consumer/         # чтение сообщений из Kafka
+  service/          # бизнес‑логика и кэш
+  server/           # HTTP‑сервер и статика
+pkg/                # общие модели
+schema/             # SQL‑схема базы данных
+static/             # фронтенд страница
+docker-compose.yml  # запуск Kafka и ZooKeeper
+run.sh              # запуск приложения
+test.json           # пример сообщения для Kafka
 ```
 
-### Шаг 3: Запуск сервиса
+## Быстрый старт
 
-```bash
-chmod +x run.sh   # один раз
-./run.sh          # запуск приложения с нужными ENV
-```
+1. **Подготовьте PostgreSQL**
 
-Ожидаемый вывод:
+   ```bash
+   psql postgres <<'SQL'
+   CREATE DATABASE orders_service_db;
+   CREATE USER orders_service_user PASSWORD 'veryhardpassword12345';
+   GRANT ALL PRIVILEGES ON DATABASE orders_service_db TO orders_service_user;
+   SQL
 
-```
-Connected PG
-Cache loaded: N orders
-Kafka consumer started
-HTTP server on :8081
-```
+   psql -U orders_service_user -d orders_service_db -f schema/schema.sql
+   ```
 
----
+2. **Запустите Kafka и ZooKeeper**
+
+   ```bash
+   docker compose up -d
+   ```
+
+3. **Запустите сервис**
+
+   ```bash
+   chmod +x run.sh   # однократно
+   ./run.sh
+   ```
+
+   Ожидаемый вывод:
+
+   ```
+   Connected PG
+   Cache loaded: N orders
+   Kafka consumer started
+   HTTP server on :8081
+   ```
 
 ## Пример использования
-
-### HTTP-запрос:
 
 ```bash
 curl http://localhost:8081/order/b563feb7b2b84b6test | jq
 ```
 
-### Ожидаемый ответ:
+Ответ:
 
 ```json
 {
@@ -142,47 +132,21 @@ curl http://localhost:8081/order/b563feb7b2b84b6test | jq
 }
 ```
 
-### Видео работы:
+Видео демонстрации: [Google Drive](https://drive.google.com/file/d/1-U-Ti53Mk0OmKOQgpkMY8NvHtHTkE16J/view?usp=sharing)
 
-[Смотреть демо-видео](https://drive.google.com/file/d/1-U-Ti53Mk0OmKOQgpkMY8NvHtHTkE16J/view?usp=sharing)
+## Продюсер
 
----
-
-## Продюсер 
+Для отправки тестового заказа в Kafka:
 
 ```bash
 go run ./cmd/order-producer -f test.json
 ```
 
-
 ## Технические детали
 
-* Использован **pgxpool** для эффективной работы с PostgreSQL
-* Кеш заказов реализован с помощью встроенного типа Go (`map[string]Order`)
-
-### Ключевые решения и библиотеки
-
-| Решение                  | Почему выбрано                                              |
-| ------------------------ | ----------------------------------------------------------- |
-| **segmentio/kafka-go**   | Чистый Go, удобный API, минимальные зависимости             |
-| **pgxpool (jackc/pgx)**  | Высокая производительность, контекстная работа с PostgreSQL |
-| **In-memory map**        | Простота, скорость чтения для демонстрации                  |
-| **Транзакции в БД**      | Гарантия целостности данных                                 |
-| **CommitMessages Kafka** | Подтверждение после сохранения                              |
-
-### Архитектурные паттерны
-
-* **Чистая архитектура** (чёткое разделение ответственности: `db`, `consumer`, `service`, `server`)
-* **Идемпотентность** (`ON CONFLICT` SQL-запросы, безопасны при повторе)
-* **Явное подтверждение обработки сообщений Kafka**
-
-### Основные компоненты и пакеты:
-
-* Подключение к БД: [`internal/db`](internal/db)
-* Бизнес-логика и кеш: [`internal/service`](internal/service)
-* Консьюмер Kafka: [`internal/consumer`](internal/consumer)
-* HTTP API: [`internal/server`](internal/server)
-* Структуры данных: [`pkg/models`](pkg/models)
-
----
+* `segmentio/kafka-go` — клиент Kafka на чистом Go
+* `pgx`/`pgxpool` — высокопроизводительный драйвер PostgreSQL
+* in-memory кэш на основе `map[string]Order`
+* подтверждение сообщений Kafka только после успешного сохранения в БД
+* SQL-конструкции `ON CONFLICT` для идемпотентности
 
