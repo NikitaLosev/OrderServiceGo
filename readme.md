@@ -1,188 +1,239 @@
-
 # OrderService
-Сервис для выдачи данных о заказе по его ID.
 
-## Структура проекта
-
-Проект организован в соответствии с best-practices для Go-приложений, с четким разделением обязанностей и удобством расширения.
-
-Структура репозитория:
-
-1. **cmd/**
-   - точка входа приложения (`orders-service`).
-   - скрипт продюсера для отправки сообщений в Kafka (`order-producer`).
-  
-2. **internal/**
-   1. **db/**
-      - Подключение к базе данных PostgreSQL (функция `ConnectDB()`).
-   2. **consumer/**
-      - Консьюмер Kafka (`StartKafkaConsumer`), читает сообщения и сохраняет заказы в БД.
-   3. **service/**
-      - Бизнес-логика: сохранение заказов (`SaveOrder`), кеширование, восстановление кеша (`RestoreCache`), доступ к данным (`GetOrderFromDB`).
-   4. **server/**
-      - HTTP-сервер, REST API и раздача статики.
-
-3. **pkg/**
-   - Модели данных (`Order`, `Delivery`, `Payment`, `Item`).
-
-4. **schema/**
-   - SQL-схема базы данных.
-
-5. **static/**
-   - HTML/JS страница для взаимодействия с API.
-
-6. **docker-compose.yml**
-   - Конфигурация Kafka и ZooKeeper.
-
-7. **test.json**
-   - Пример JSON-заказа для отправки в Kafka.
-
-8. **run.sh**
-   - Скрипт запуска проекта (экспорт ENV + запуск).
+Микросервис для хранения и выдачи данных о заказе по его уникальному идентификатору.  
+Заказы поступают из Kafka, сохраняются в PostgreSQL и кешируются в памяти для быстрого чтения.  
+Сервис предоставляет HTTP‑API `GET /order/{order_uid}` и простую веб‑страницу из каталога `static`.
 
 ---
 
-## Как запускать сервис
+## Содержание
 
-### Шаг 1: PostgreSQL
+1. [Стек и особенности](#стек-и-особенности)  
+2. [Структура репозитория](#структура-репозитория)  
+3. [Архитектура и основные пакеты](#архитектура-и-основные-пакеты)  
+4. [Конфигурация](#конфигурация)  
+5. [Запуск локально](#запуск-локально)  
+6. [API](#api)  
+7. [Тестирование и CI](#тестирование-и-ci)  
+8. [Полезные команды Makefile](#полезные-команды-makefile)  
+9. [Третьи стороны и лицензии](#третьи-стороны-и-лицензии)
 
-```bash
-psql postgres <<'SQL'
-CREATE DATABASE orders_service_db;
-CREATE USER orders_service_user PASSWORD 'veryhardpassword12345';
-GRANT ALL PRIVILEGES ON DATABASE orders_service_db TO orders_service_user;
-SQL
+---
 
-psql -U orders_service_user -d orders_service_db -f schema/schema.sql
-````
+## Стек и особенности
 
-### Шаг 2: Kafka и ZooKeeper
+- **Go 1.24**  
+- **PostgreSQL + pgxpool** — пул соединений с таймаутами и ping при старте.  
+- **Kafka (segmentio/kafka-go)** — чтение заказов консьюмером с коммитом оффсета только после успешного сохранения.  
+- **slog** — структурированное логирование.  
+- **validator/v10** — валидация DTO (заглушка лежит в `third_party` для офлайн‑сборки).  
+- **Потокобезопасный кеш** — `sync.RWMutex` + TTL и джанитор для удаления просроченных записей.  
+- **Graceful shutdown** — `context` + `os/signal`; корректное закрытие HTTP‑сервера, Kafka‑консьюмера и БД.  
+- **Единая обработка ошибок** — маппинг доменных ошибок на HTTP‑коды, обёртывание `fmt.Errorf("…: %w")`.  
 
-```bash
-docker compose up -d
+---
+
+## Структура репозитория
+
 ```
-
-### Шаг 3: Запуск сервиса
-
-```bash
-chmod +x run.sh   # один раз
-./run.sh          # запуск приложения с нужными ENV
-```
-
-Ожидаемый вывод:
-
-```
-Connected PG
-Cache loaded: N orders
-Kafka consumer started
-HTTP server on :8081
+OrderServiceGo/
+├── cmd/                    # entry‑points
+│   ├── orders-service      # основной сервис
+│   └── orders-producer     # вспомогательный продюсер для Kafka
+├── internal/               # приватные пакеты
+│   ├── cache               # кеш заказов (TTL, janitor)
+│   ├── config              # загрузка env‑конфига
+│   ├── consumer            # Kafka‑консьюмер
+│   ├── db                  # подключение к PostgreSQL
+│   ├── producer            # отправка сообщений в Kafka
+│   ├── server              # HTTP‑сервер и middleware
+│   └── service             # бизнес‑логика, валидация, работа с БД
+├── pkg/
+│   └── models              # структуры данных (Order, Delivery, Payment, Item)
+├── schema/                 # SQL‑схема БД
+├── static/                 # простая HTML/JS‑страничка для проверки API
+├── third_party/            # локальные заглушки gofakeit и validator
+├── Makefile                # вспомогательные команды
+├── docker-compose.yml      # Kafka + ZooKeeper
+├── env.example             # пример .env
+└── test.json               # пример заказа для тестов/продюсера
 ```
 
 ---
 
-## Пример использования
+## Архитектура и основные пакеты
 
-### HTTP-запрос:
+### `cmd/orders-service`
+Точка входа сервиса:
+- загрузка конфигурации;
+- подключение к БД и восстановление кеша;
+- запуск Kafka‑консьюмера и HTTP‑сервера в отдельных горутинах;
+- ожидание сигнала `os.Interrupt` и корректное завершение всех компонентов.
 
-```bash
-curl http://localhost:8081/order/b563feb7b2b84b6test | jq
-```
+### `internal/config`
+Простая загрузка переменных окружения с дефолтами (`HTTP_ADDR`, `KAFKA_BROКERS`, `KAFKA_TOPIC` и параметры БД).
 
-### Ожидаемый ответ:
+### `internal/db`
+Создание пула соединений `pgxpool` с контекстом и проверкой доступности (`Ping`).
+
+### `internal/service`
+- `SaveOrder` — транзакционно сохраняет заказ в PostgreSQL и кладёт его в кеш.  
+- `GetOrderFromDB` — выборка заказа при cache‑miss.  
+- `RestoreCache` — прогрев кеша из БД при старте.  
+- `ValidateOrder` — проверка структур по тегам `validate:"required"`.  
+- `errors.go` — типовые ошибки `ErrNotFound`, `ErrValidation`.  
+
+### `internal/cache`
+Потокобезопасный in‑memory кеш заказов:
+- `Get/Set` c TTL;
+- ленивое удаление просроченных записей и периодический janitor (`StartJanitor`);
+- покрыт unit‑тестами на конкурентность и истечение TTL.
+
+### `internal/server`
+HTTP‑сервер:
+- маршруты:  
+  - `/` — раздача статики;  
+  - `GET /order/{uid}` — выдача заказа.  
+- middleware логирования (`slog`) и единый обработчик ошибок.
+- `StartHTTPServer` поддерживает graceful shutdown по отмене контекста.
+
+### `internal/consumer`
+Kafka‑консьюмер:
+- читает сообщения, валидирует и сохраняет заказы;
+- коммит оффсета после успешного `save`;
+- завершает работу по отмене контекста.
+
+### `internal/producer`
+Утилита отправки заказов в Kafka; в тестах проверяется генерация уникальных заказов (`gofakeit.UUID`).
+
+### `pkg/models`
+Структуры данных с json/validate‑тегами:
+`Order`, `Delivery`, `Payment`, `Item`.
+
+### `third_party`
+Минимальные офлайн‑реализации `github.com/brianvoe/gofakeit/v7` (генерация UUID) и  
+`github.com/go-playground/validator/v10` (теги `required`). В реальном окружении рекомендуется заменить на полноценные пакеты.
+
+---
+
+## Конфигурация
+
+Переменные окружения (см. `env.example`):
+
+| Переменная        | Описание                         | Значение по умолчанию |
+|-------------------|----------------------------------|-----------------------|
+| `DB_USER`         | пользователь PostgreSQL          | `user`                |
+| `DB_PASSWORD`     | пароль                           | `pass`                |
+| `DB_HOST`         | хост БД                          | `localhost`           |
+| `DB_PORT`         | порт БД                          | `5432`                |
+| `DB_NAME`         | имя БД                           | `orders`              |
+| `HTTP_ADDR`       | адрес HTTP‑сервера               | `:8081`               |
+| `KAFKA_BROKERS`   | список брокеров Kafka (через ,)  | `localhost:9092`      |
+| `KAFKA_TOPIC`     | топик Kafka                      | `orders_topic`        |
+
+---
+
+## Запуск локально
+
+1. **Поднять Kafka и ZooKeeper**
+
+   ```bash
+   docker compose up -d kafka
+   ```
+
+2. **Подготовить БД**
+
+   ```bash
+   psql postgres <<'SQL'
+   CREATE DATABASE orders;
+   CREATE USER user PASSWORD 'pass';
+   GRANT ALL PRIVILEGES ON DATABASE orders TO user;
+   SQL
+
+   psql -U user -d orders -f schema/schema.sql
+   ```
+
+3. **Настроить переменные**
+
+   ```bash
+   cp env.example .env
+   export $(grep -v '^#' .env | xargs)
+   ```
+
+4. **Запустить сервис**
+
+   ```bash
+   make run
+   ```
+
+5. **Отправить пример заказа в Kafka**
+
+   ```bash
+   go run ./cmd/orders-producer -f test.json
+   ```
+
+6. **Получить заказ по HTTP**
+
+   ```bash
+   curl http://localhost:8081/order/<order_uid> | jq
+   ```
+
+Вместо `<order_uid>` подставьте ID, который отправили продюсером.
+
+---
+
+## API
+
+### `GET /order/{order_uid}`
+
+Возвращает JSON заказа:
 
 ```json
 {
   "order_uid": "b563feb7b2b84b6test",
   "track_number": "WBILMTESTTRACK",
   "entry": "WBIL",
-  "delivery": {
-    "name": "Test Testov",
-    "phone": "+9720000000",
-    "zip": "2639809",
-    "city": "Kiryat Mozkin",
-    "address": "Ploshad Mira 15",
-    "region": "Kraiot",
-    "email": "test@gmail.com"
-  },
-  "payment": {
-    "transaction": "b563feb7b2b84b6test",
-    "request_id": "",
-    "currency": "USD",
-    "provider": "wbpay",
-    "amount": 1817,
-    "payment_dt": 1637907727,
-    "bank": "alpha",
-    "delivery_cost": 1500,
-    "goods_total": 317,
-    "custom_fee": 0
-  },
-  "items": [
-    {
-      "chrt_id": 9934930,
-      "track_number": "WBILMTESTTRACK",
-      "price": 453,
-      "rid": "ab4219087a764ae0btest",
-      "name": "Mascaras",
-      "sale": 30,
-      "size": "0",
-      "total_price": 317,
-      "nm_id": 2389212,
-      "brand": "Vivienne Sabo",
-      "status": 202
-    }
-  ],
-  "locale": "en",
-  "internal_signature": "",
-  "customer_id": "test",
-  "delivery_service": "meest",
-  "shardkey": "9",
-  "sm_id": 99,
-  "date_created": "2021-11-26T06:22:19Z",
-  "oof_shard": "1"
+  "...": "..."
 }
 ```
 
-### Видео работы:
+**Коды ответа**
 
-[Смотреть демо-видео](https://drive.google.com/file/d/1-U-Ti53Mk0OmKOQgpkMY8NvHtHTkE16J/view?usp=sharing)
+| Код | Причина                     |
+|-----|-----------------------------|
+| 200 | заказ найден                |
+| 400 | невалидный запрос / ID      |
+| 404 | заказ не найден             |
+| 500 | внутренняя ошибка сервера   |
 
 ---
 
-## Продюсер 
+## Тестирование и CI
+
+- Unit‑тесты покрывают кеш, валидацию, HTTP‑обработчики, Kafka‑консьюмера/продюсера и graceful shutdown.
+- `go test ./...` — обычные тесты.  
+- `go test -race ./...` — проверка на гонки.  
+- `go vet` и `staticcheck` — базовый статический анализ.  
+- GitHub Actions (`.github/workflows/ci.yml`) прогоняет `go vet` и `go test` на каждом push.
+
+---
+
+## Полезные команды Makefile
 
 ```bash
-go run ./cmd/order-producer -f test.json
+make run       # запуск сервиса
+make lint      # go vet + staticcheck
+make test      # go test и go test -race
+make kafka-up  # поднять Kafka через docker-compose
 ```
 
+---
 
-## Технические детали
+## Третьи стороны и лицензии
 
-* Использован **pgxpool** для эффективной работы с PostgreSQL
-* Кеш заказов реализован с помощью встроенного типа Go (`map[string]Order`)
-
-### Ключевые решения и библиотеки
-
-| Решение                  | Почему выбрано                                              |
-| ------------------------ | ----------------------------------------------------------- |
-| **segmentio/kafka-go**   | Чистый Go, удобный API, минимальные зависимости             |
-| **pgxpool (jackc/pgx)**  | Высокая производительность, контекстная работа с PostgreSQL |
-| **In-memory map**        | Простота, скорость чтения для демонстрации                  |
-| **Транзакции в БД**      | Гарантия целостности данных                                 |
-| **CommitMessages Kafka** | Подтверждение после сохранения                              |
-
-### Архитектурные паттерны
-
-* **Чистая архитектура** (чёткое разделение ответственности: `db`, `consumer`, `service`, `server`)
-* **Идемпотентность** (`ON CONFLICT` SQL-запросы, безопасны при повторе)
-* **Явное подтверждение обработки сообщений Kafka**
-
-### Основные компоненты и пакеты:
-
-* Подключение к БД: [`internal/db`](internal/db)
-* Бизнес-логика и кеш: [`internal/service`](internal/service)
-* Консьюмер Kafka: [`internal/consumer`](internal/consumer)
-* HTTP API: [`internal/server`](internal/server)
-* Структуры данных: [`pkg/models`](pkg/models)
+Проект использует сторонние библиотеки (Kafka, pgx, slog). В каталоге `third_party` размещены минимальные офлайн‑заглушки `gofakeit` и `validator` для работы без доступа к интернету. При работе в продакшене рекомендуется заменить их на официальные модули. Все остальные зависимости находятся под открытыми лицензиями, совместимыми с MIT.
 
 ---
+
+Этот README призван дать полное представление о кодовой базе OrderService и служит отправной точкой для разработки и сопровождения проекта.
 
