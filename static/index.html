@@ -1,0 +1,32 @@
+<!-- static: фронтенд для ввода ID заказа и отображения результата -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8" />
+    <title>Order Viewer</title>
+</head>
+<body>
+<h1>Order Viewer</h1>
+<!-- поле для ввода order_uid -->
+<input id="oid" placeholder="Введите order_uid" />
+<!-- кнопка для загрузки данных заказа -->
+<button onclick="loadOrder()">Load</button>
+<!-- контейнер для вывода JSON-ответа -->
+<pre id="result"></pre>
+
+<!-- скрипт: функция loadOrder выполняет запрос к API и отображает результат -->
+<script>
+    // функция загрузки данных заказа по указанному UID
+    async function loadOrder() {
+        const uid = document.getElementById('oid').value;
+        // отправляем GET-запрос к эндпоинту /order/{uid}
+        const res = await fetch(`/order/${uid}`);
+        // если успешно, форматируем JSON, иначе выводим код ошибки
+        const text = res.ok
+            ? JSON.stringify(await res.json(), null, 2)
+            : `Error: ${res.status}`;
+        document.getElementById('result').innerText = text;
+    }
+</script>
+</body>
+</html>
