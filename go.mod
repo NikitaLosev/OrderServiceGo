@@ -3,8 +3,10 @@ module LZero
 go 1.24
 
 require (
-	github.com/jackc/pgx/v5 v5.7.5
-	github.com/segmentio/kafka-go v0.4.48
+        github.com/jackc/pgx/v5 v5.7.5
+        github.com/segmentio/kafka-go v0.4.48
+       github.com/brianvoe/gofakeit/v7 v7.0.0
+       github.com/go-playground/validator/v10 v10.20.0
 )
 
 require (
@@ -17,3 +19,6 @@ require (
 	golang.org/x/sync v0.13.0 // indirect
 	golang.org/x/text v0.24.0 // indirect
 )
+
+replace github.com/brianvoe/gofakeit/v7 => ./third_party/gofakeit
+replace github.com/go-playground/validator/v10 => ./third_party/validator
