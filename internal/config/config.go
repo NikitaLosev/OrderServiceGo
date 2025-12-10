@@ -7,8 +7,8 @@ import (
 )
 
 type Config struct {
-	HTTPAddr       string        `env:"HTTP_ADDR" env-default=":8081"`
-	GRPCAddr       string        `env:"GRPC_ADDR" env-default=":9090"`
+	HTTPAddr       string        `env:"HTTP_ADDR" env-default:":8081"`
+	GRPCAddr       string        `env:"GRPC_ADDR" env-default:":9090"`
 	KafkaBrokers   []string      `env:"KAFKA_BROKERS" env-separator:"," env-required:"true"`
 	KafkaTopic     string        `env:"KAFKA_TOPIC" env-default:"orders_topic"`
 	DatabaseURL    string        `env:"DATABASE_URL" env-required:"true"`
