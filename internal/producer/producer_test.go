@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"LZero/pkg/models"
 	"github.com/brianvoe/gofakeit/v7"
 	"github.com/segmentio/kafka-go"
+	"orderservice/pkg/models"
 )
 
 type fakeWriter struct{ msgs []kafka.Message }

@@ -33,9 +33,9 @@ migrate-status: $(BIN)/goose
 
 proto: $(BIN)/protoc-gen-go $(BIN)/protoc-gen-go-grpc $(BIN)/protoc-gen-grpc-gateway
 	protoc --proto_path=proto --proto_path=third_party/proto \
-		--go_out=. --go_opt=module=LZero \
-		--go-grpc_out=. --go-grpc_opt=module=LZero \
-		--grpc-gateway_out=. --grpc-gateway_opt=module=LZero \
+		--go_out=. --go_opt=module=orderservice \
+		--go-grpc_out=. --go-grpc_opt=module=orderservice \
+		--grpc-gateway_out=. --grpc-gateway_opt=module=orderservice \
 		proto/order.proto
 
 swagger: $(BIN)/swag

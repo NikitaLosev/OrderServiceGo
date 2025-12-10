@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"LZero/pkg/models"
 	"github.com/brianvoe/gofakeit/v7"
 	"github.com/segmentio/kafka-go"
 	"go.opentelemetry.io/otel"
+	"orderservice/pkg/models"
 )
 
 type fakeReader struct {

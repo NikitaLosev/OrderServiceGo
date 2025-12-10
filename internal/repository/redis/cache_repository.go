@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"LZero/internal/repository"
-	"LZero/pkg/models"
+	"orderservice/internal/repository"
+	"orderservice/pkg/models"
 
 	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/otel/attribute"

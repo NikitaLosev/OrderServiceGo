@@ -7,8 +7,8 @@ import (
 	"log/slog"
 	"strings"
 
-	"LZero/internal/observability"
-	"LZero/pkg/models"
+	"orderservice/internal/observability"
+	"orderservice/pkg/models"
 
 	"github.com/segmentio/kafka-go"
 	"go.opentelemetry.io/otel"

@@ -6,9 +6,9 @@ import (
 	"log/slog"
 	"time"
 
-	"LZero/internal/observability"
-	"LZero/internal/repository"
-	"LZero/pkg/models"
+	"orderservice/internal/observability"
+	"orderservice/internal/repository"
+	"orderservice/pkg/models"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"

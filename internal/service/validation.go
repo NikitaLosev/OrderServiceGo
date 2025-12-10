@@ -5,7 +5,7 @@ import (
 
 	"github.com/go-playground/validator/v10"
 
-	"LZero/pkg/models"
+	"orderservice/pkg/models"
 )
 
 var validate = validator.New()

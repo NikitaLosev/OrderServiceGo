@@ -11,14 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"LZero/internal/consumer"
-	"LZero/internal/db"
-	"LZero/internal/observability"
-	"LZero/internal/producer"
-	"LZero/internal/repository/postgres"
-	redisrepo "LZero/internal/repository/redis"
-	"LZero/internal/service"
-	"LZero/pkg/models"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
@@ -29,6 +21,14 @@ import (
 	tcPostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 	tcRedis "github.com/testcontainers/testcontainers-go/modules/redis"
 	"go.opentelemetry.io/otel"
+	"orderservice/internal/consumer"
+	"orderservice/internal/db"
+	"orderservice/internal/observability"
+	"orderservice/internal/producer"
+	"orderservice/internal/repository/postgres"
+	redisrepo "orderservice/internal/repository/redis"
+	"orderservice/internal/service"
+	"orderservice/pkg/models"
 )
 
 func TestKafkaToPostgresFlow(t *testing.T) {

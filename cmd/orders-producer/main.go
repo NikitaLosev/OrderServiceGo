@@ -8,9 +8,9 @@ import (
 	"os"
 	"strings"
 
-	"LZero/internal/observability"
-	"LZero/internal/producer"
-	"LZero/pkg/models"
+	"orderservice/internal/observability"
+	"orderservice/internal/producer"
+	"orderservice/pkg/models"
 
 	"github.com/google/uuid"
 	"github.com/ilyakaznacheev/cleanenv"

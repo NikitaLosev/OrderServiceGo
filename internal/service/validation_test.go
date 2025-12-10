@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"LZero/pkg/models"
+	"orderservice/pkg/models"
 )
 
 func TestValidateOrder(t *testing.T) {

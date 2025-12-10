@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"LZero/internal/observability"
+	"orderservice/internal/observability"
 )
 
 func TestNormalizePath(t *testing.T) {

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"LZero/pkg/api/orderpb"
-	"LZero/pkg/models"
+	"orderservice/pkg/api/orderpb"
+	"orderservice/pkg/models"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/prometheus/client_golang/prometheus/promhttp"

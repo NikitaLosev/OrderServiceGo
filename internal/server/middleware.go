@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"LZero/internal/observability"
+	"orderservice/internal/observability"
 
 	"github.com/google/uuid"
 )

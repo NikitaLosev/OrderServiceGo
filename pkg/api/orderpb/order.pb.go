@@ -7,14 +7,13 @@
 package orderpb
 
 import (
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
-
 	_ "google.golang.org/genproto/googleapis/api/annotations"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
 )
 
 const (
@@ -657,7 +656,7 @@ const file_order_proto_rawDesc = "" +
 	"\x10GetOrderResponse\x12%\n" +
 	"\x05order\x18\x01 \x01(\v2\x0f.order.v1.OrderR\x05order2m\n" +
 	"\fOrderService\x12]\n" +
-	"\bGetOrder\x12\x19.order.v1.GetOrderRequest\x1a\x1a.order.v1.GetOrderResponse\"\x1a\x82\xd3\xe4\x93\x02\x14\x12\x12/order/{order_uid}B\x1fZ\x1dLZero/pkg/api/orderpb;orderpbb\x06proto3"
+	"\bGetOrder\x12\x19.order.v1.GetOrderRequest\x1a\x1a.order.v1.GetOrderResponse\"\x1a\x82\xd3\xe4\x93\x02\x14\x12\x12/order/{order_uid}B&Z$orderservice/pkg/api/orderpb;orderpbb\x06proto3"
 
 var (
 	file_order_proto_rawDescOnce sync.Once

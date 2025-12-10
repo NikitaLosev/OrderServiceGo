@@ -7,9 +7,9 @@ import (
 	"log/slog"
 	"net"
 
-	"LZero/internal/observability"
-	"LZero/internal/service"
-	"LZero/pkg/api/orderpb"
+	"orderservice/internal/observability"
+	"orderservice/internal/service"
+	"orderservice/pkg/api/orderpb"
 
 	"github.com/google/uuid"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"

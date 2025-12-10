@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"LZero/pkg/api/orderpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"orderservice/pkg/api/orderpb"
 )
 
 func TestServerShutdown(t *testing.T) {

@@ -1,4 +1,4 @@
-module LZero
+module orderservice
 
 go 1.24.0
 

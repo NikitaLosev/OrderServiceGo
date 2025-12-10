@@ -3,8 +3,8 @@ package server
 import (
 	"time"
 
-	"LZero/pkg/api/orderpb"
-	"LZero/pkg/models"
+	"orderservice/pkg/api/orderpb"
+	"orderservice/pkg/models"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 )

@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"LZero/pkg/models"
+	"orderservice/pkg/models"
 )
 
 type OrderRepository interface {

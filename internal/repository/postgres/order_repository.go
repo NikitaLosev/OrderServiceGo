@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"LZero/internal/repository"
-	"LZero/pkg/models"
+	"orderservice/internal/repository"
+	"orderservice/pkg/models"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
