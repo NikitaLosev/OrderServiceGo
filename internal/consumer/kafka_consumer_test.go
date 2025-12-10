@@ -11,6 +11,7 @@ import (
 	"LZero/pkg/models"
 	"github.com/brianvoe/gofakeit/v7"
 	"github.com/segmentio/kafka-go"
+	"go.opentelemetry.io/otel"
 )
 
 type fakeReader struct {
@@ -45,13 +46,13 @@ func TestConsume(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	go func() {
-		_ = consume(ctx, r, func(o models.Order) error {
+		_ = consume(ctx, r, func(ctx context.Context, o models.Order) error {
 			saved = append(saved, o)
 			if len(saved) == len(want) {
 				cancel()
 			}
 			return nil
-		}, logger)
+		}, logger, otel.Tracer("test"))
 	}()
 	<-ctx.Done()
 	if len(saved) != len(want) {

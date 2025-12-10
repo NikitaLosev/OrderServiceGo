@@ -1,139 +1,115 @@
-// service: сохранение заказов в БД и работа с кешем
 package service
 
 import (
-	"LZero/internal/cache"
-	"LZero/pkg/models"
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"LZero/internal/observability"
+	"LZero/internal/repository"
+	"LZero/pkg/models"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
-// OrderCache хранит последние заказы в памяти с TTL
-var OrderCache = cache.New(5 * time.Minute)
+type Service struct {
+	repo     repository.OrderRepository
+	cache    repository.CacheRepository
+	cacheTTL time.Duration
+	logger   *slog.Logger
+	tracer   trace.Tracer
+}
 
-// SaveOrder сохраняет заказ в БД и обновляет кеш
-func SaveOrder(pool *pgxpool.Pool, order models.Order) error {
+func New(repo repository.OrderRepository, cache repository.CacheRepository, cacheTTL time.Duration, logger *slog.Logger, tracer trace.Tracer) *Service {
+	return &Service{
+		repo:     repo,
+		cache:    cache,
+		cacheTTL: cacheTTL,
+		logger:   logger,
+		tracer:   tracer,
+	}
+}
+
+func (s *Service) SaveOrder(ctx context.Context, order models.Order) error {
 	if err := ValidateOrder(order); err != nil {
 		return err
 	}
-	// создаём контекст с таймаутом 5 секунд
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	ctx, span := s.tracer.Start(ctx, "service.SaveOrder")
+	defer span.End()
 
-	// начинаем транзакцию
-	tx, err := pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin transaction failed: %w", err)
+	logger := s.logger
+	if reqID := observability.RequestIDFromContext(ctx); reqID != "" {
+		logger = logger.With("req_id", reqID)
 	}
-	defer tx.Rollback(ctx)
-	// вставка в таблицу orders
-	_, err = tx.Exec(ctx, `
-        INSERT INTO orders (
-            order_uid, track_number, entry, locale, internal_signature,
-            customer_id, delivery_service, shardkey, sm_id, date_created, oof_shard
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-        ON CONFLICT (order_uid) DO NOTHING
-    `, order.OrderUID, order.TrackNumber, order.Entry, order.Locale,
-		order.InternalSignature, order.CustomerID, order.DeliveryService,
-		order.ShardKey, order.SmID, order.DateCreated, order.OofShard)
-	if err != nil {
-		return fmt.Errorf("insert orders failed: %w", err)
+
+	if err := s.repo.SaveOrder(ctx, order); err != nil {
+		return fmt.Errorf("save order: %w", err)
 	}
-	// вставка в таблицу deliveries
-	_, err = tx.Exec(ctx, `
-        INSERT INTO deliveries (
-            order_uid, name, phone, zip, city, address, region, email
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-        ON CONFLICT (order_uid) DO NOTHING
-    `, order.OrderUID,
-		order.Delivery.Name, order.Delivery.Phone,
-		order.Delivery.Zip, order.Delivery.City,
-		order.Delivery.Address, order.Delivery.Region,
-		order.Delivery.Email)
-	if err != nil {
-		return fmt.Errorf("insert deliveries failed: %w", err)
-	}
-	// вставка в таблицу payments
-	_, err = tx.Exec(ctx, `
-        INSERT INTO payments (
-            order_uid, transaction_id, request_id, currency, provider,
-            amount, payment_dt, bank, delivery_cost, goods_total, custom_fee
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-        ON CONFLICT (order_uid) DO NOTHING
-    `, order.OrderUID,
-		order.Payment.Transaction, order.Payment.RequestID,
-		order.Payment.Currency, order.Payment.Provider,
-		order.Payment.Amount, order.Payment.PaymentDT,
-		order.Payment.Bank, order.Payment.DeliveryCost,
-		order.Payment.GoodsTotal, order.Payment.CustomFee)
-	if err != nil {
-		return fmt.Errorf("insert payments failed: %w", err)
-	}
-	// вставка в таблицу items
-	for _, it := range order.Items {
-		_, err = tx.Exec(ctx, `
-            INSERT INTO items (
-                order_uid, chrt_id, track_number, price, rid,
-                name, sale, size, total_price, nm_id, brand, status
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-        `, order.OrderUID,
-			it.ChrtID, it.TrackNumber, it.Price,
-			it.Rid, it.Name, it.Sale, it.Size,
-			it.TotalPrice, it.NmID, it.Brand, it.Status)
-		if err != nil {
-			return fmt.Errorf("insert items failed: %w", err)
+	if s.cache != nil {
+		if err := s.cache.Set(ctx, order.OrderUID, order, s.cacheTTL); err != nil {
+			logger.Error("cache set failed", "err", err, "uid", order.OrderUID)
 		}
 	}
-	// завершаем транзакцию (commit)
-	if err = tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit transaction failed: %w", err)
-	}
-
-	// обновляем кеш
-	OrderCache.Set(order.OrderUID, order)
+	span.SetAttributes(attribute.String("order_uid", order.OrderUID))
 	return nil
 }
 
-// RestoreCache загружает заказы из БД в кеш
-func RestoreCache(pool *pgxpool.Pool) error {
-	// получаем все заказы из таблицы orders
-	rows, err := pool.Query(context.Background(), `
-        SELECT
-            o.order_uid,
-            o.track_number,
-            o.entry,
-            o.locale,
-            o.internal_signature,
-            o.customer_id,
-            o.delivery_service,
-            o.shardkey,
-            o.sm_id,
-            o.date_created,
-            o.oof_shard
-        FROM orders o
-    `)
-	if err != nil {
-		return fmt.Errorf("restoreCache: select orders failed: %w", err)
+func (s *Service) GetOrder(ctx context.Context, uid string) (models.Order, error) {
+	if uid == "" {
+		return models.Order{}, ErrValidation
 	}
-	defer rows.Close()
+	ctx, span := s.tracer.Start(ctx, "service.GetOrder")
+	defer span.End()
 
-	// наполняем кеш результатами
-	for rows.Next() {
-		var o models.Order
-		if err := rows.Scan(
-			&o.OrderUID, &o.TrackNumber, &o.Entry,
-			&o.Locale, &o.InternalSignature, &o.CustomerID,
-			&o.DeliveryService, &o.ShardKey, &o.SmID,
-			&o.DateCreated, &o.OofShard,
-		); err != nil {
-			return fmt.Errorf("restoreCache: scan order failed: %w", err)
+	if s.cache != nil {
+		if cached, ok, err := s.cache.Get(ctx, uid); err == nil && ok {
+			span.SetAttributes(attribute.String("source", "cache"))
+			return cached, nil
+		} else if err != nil {
+			s.logger.Error("cache get failed", "err", err, "uid", uid)
 		}
-
-		OrderCache.Set(o.OrderUID, o)
 	}
 
-	return rows.Err()
+	logger := s.logger
+	if reqID := observability.RequestIDFromContext(ctx); reqID != "" {
+		logger = logger.With("req_id", reqID)
+	}
+
+	order, err := s.repo.GetOrder(ctx, uid)
+	if err != nil {
+		if err == repository.ErrNotFound {
+			return models.Order{}, ErrNotFound
+		}
+		return models.Order{}, fmt.Errorf("get order: %w", err)
+	}
+
+	if s.cache != nil {
+		if err := s.cache.Set(ctx, order.OrderUID, order, s.cacheTTL); err != nil {
+			logger.Error("cache set failed", "err", err, "uid", uid)
+		}
+	}
+	span.SetAttributes(attribute.String("order_uid", uid))
+	return order, nil
+}
+
+func (s *Service) RestoreCache(ctx context.Context) error {
+	if s.cache == nil {
+		return nil
+	}
+	ctx, span := s.tracer.Start(ctx, "service.RestoreCache")
+	defer span.End()
+
+	orders, err := s.repo.ListOrders(ctx)
+	if err != nil {
+		return fmt.Errorf("list orders: %w", err)
+	}
+	for _, o := range orders {
+		if err := s.cache.Set(ctx, o.OrderUID, o, s.cacheTTL); err != nil {
+			s.logger.Error("cache warmup failed", "err", err, "uid", o.OrderUID)
+		}
+	}
+	span.SetAttributes(attribute.Int("cache_primed", len(orders)))
+	return nil
 }

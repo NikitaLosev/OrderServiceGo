@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strings"
 
-	"LZero/internal/service"
+	"LZero/internal/observability"
 	"LZero/pkg/models"
-	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/segmentio/kafka-go"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type Reader interface {
@@ -24,13 +27,13 @@ var newReader readerFactory = func(brokers []string, topic, groupID string) Read
 	return kafka.NewReader(kafka.ReaderConfig{Brokers: brokers, Topic: topic, GroupID: groupID})
 }
 
-func StartKafkaConsumer(ctx context.Context, brokers []string, topic, groupID string, pool *pgxpool.Pool, logger *slog.Logger) error {
+func StartKafkaConsumer(ctx context.Context, brokers []string, topic, groupID string, save func(ctx context.Context, o models.Order) error, logger *slog.Logger, tracer trace.Tracer) error {
 	r := newReader(brokers, topic, groupID)
 	defer r.Close()
-	return consume(ctx, r, func(o models.Order) error { return service.SaveOrder(pool, o) }, logger)
+	return consume(ctx, r, save, logger, tracer)
 }
 
-func consume(ctx context.Context, r Reader, save func(models.Order) error, logger *slog.Logger) error {
+func consume(ctx context.Context, r Reader, save func(context.Context, models.Order) error, logger *slog.Logger, tracer trace.Tracer) error {
 	for {
 		msg, err := r.ReadMessage(ctx)
 		if err != nil {
@@ -40,22 +43,60 @@ func consume(ctx context.Context, r Reader, save func(models.Order) error, logge
 			logger.Error("read", "err", err)
 			continue
 		}
+
+		carrier := kafkaHeaderCarrier{headers: &msg.Headers}
+		msgCtx := otel.GetTextMapPropagator().Extract(ctx, carrier)
+		if reqID := carrier.Get("x-request-id"); reqID != "" {
+			msgCtx = observability.WithRequestID(msgCtx, reqID)
+		}
+		msgCtx, span := tracer.Start(msgCtx, "consumer.consume")
 		var o models.Order
 		if err := json.Unmarshal(msg.Value, &o); err != nil {
 			logger.Error("json", "err", err)
+			span.RecordError(err)
+			span.End()
 			continue
 		}
-		if err := service.ValidateOrder(o); err != nil {
-			logger.Error("validate", "err", err)
-			continue
-		}
-		if err := save(o); err != nil {
+		if err := save(msgCtx, o); err != nil {
 			logger.Error("save", "err", err)
+			span.RecordError(err)
+			span.End()
 			continue
 		}
-		if err := r.CommitMessages(ctx, msg); err != nil {
+		if err := r.CommitMessages(msgCtx, msg); err != nil {
 			logger.Error("commit", "err", err)
+			span.RecordError(err)
 		}
-		logger.Info("order saved", "uid", o.OrderUID)
+		span.End()
+		l := logger
+		if reqID := observability.RequestIDFromContext(msgCtx); reqID != "" {
+			l = l.With("req_id", reqID)
+		}
+		l.Info("order saved", "uid", o.OrderUID, "trace_id", trace.SpanContextFromContext(msgCtx).TraceID().String())
 	}
+}
+
+type kafkaHeaderCarrier struct {
+	headers *[]kafka.Header
+}
+
+func (c kafkaHeaderCarrier) Get(key string) string {
+	for _, h := range *c.headers {
+		if strings.EqualFold(h.Key, key) {
+			return string(h.Value)
+		}
+	}
+	return ""
+}
+
+func (c kafkaHeaderCarrier) Set(key string, value string) {
+	*c.headers = append(*c.headers, kafka.Header{Key: key, Value: []byte(value)})
+}
+
+func (c kafkaHeaderCarrier) Keys() []string {
+	keys := make([]string, 0, len(*c.headers))
+	for _, h := range *c.headers {
+		keys = append(keys, h.Key)
+	}
+	return keys
 }

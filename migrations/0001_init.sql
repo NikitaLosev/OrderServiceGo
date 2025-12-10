@@ -1,6 +1,4 @@
--- schema: определение таблиц для хранения заказов (используйте миграции из каталога migrations/)
-
--- orders: основная таблица заказов
+-- +goose Up
 CREATE TABLE IF NOT EXISTS orders (
     order_uid TEXT PRIMARY KEY,
     track_number TEXT NOT NULL,
@@ -15,7 +13,6 @@ CREATE TABLE IF NOT EXISTS orders (
     oof_shard TEXT
 );
 
--- deliveries: информация о доставке заказа
 CREATE TABLE IF NOT EXISTS deliveries (
     order_uid TEXT PRIMARY KEY REFERENCES orders(order_uid),
     name TEXT,
@@ -27,7 +24,6 @@ CREATE TABLE IF NOT EXISTS deliveries (
     email TEXT
 );
 
--- payments: информация об оплате заказа
 CREATE TABLE IF NOT EXISTS payments (
     order_uid TEXT PRIMARY KEY REFERENCES orders(order_uid),
     transaction_id TEXT,
@@ -42,8 +38,7 @@ CREATE TABLE IF NOT EXISTS payments (
     custom_fee INT
 );
 
--- items: позиции (товары) в заказе
-CREATE TABLE IF NOT EXISTS items(
+CREATE TABLE IF NOT EXISTS items (
     id SERIAL PRIMARY KEY,
     order_uid TEXT REFERENCES orders(order_uid),
     chrt_id BIGINT,
@@ -58,3 +53,9 @@ CREATE TABLE IF NOT EXISTS items(
     brand TEXT,
     status INT
 );
+
+-- +goose Down
+DROP TABLE IF EXISTS items;
+DROP TABLE IF EXISTS payments;
+DROP TABLE IF EXISTS deliveries;
+DROP TABLE IF EXISTS orders;

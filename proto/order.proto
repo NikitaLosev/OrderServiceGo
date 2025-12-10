@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package order.v1;
+
+option go_package = "LZero/pkg/api/orderpb;orderpb";
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+
+message Delivery {
+  string name = 1;
+  string phone = 2;
+  string zip = 3;
+  string city = 4;
+  string address = 5;
+  string region = 6;
+  string email = 7;
+}
+
+message Payment {
+  string transaction = 1;
+  string request_id = 2;
+  string currency = 3;
+  string provider = 4;
+  int32 amount = 5;
+  int64 payment_dt = 6;
+  string bank = 7;
+  int32 delivery_cost = 8;
+  int32 goods_total = 9;
+  int32 custom_fee = 10;
+}
+
+message Item {
+  int64 chrt_id = 1;
+  string track_number = 2;
+  int32 price = 3;
+  string rid = 4;
+  string name = 5;
+  int32 sale = 6;
+  string size = 7;
+  int32 total_price = 8;
+  int64 nm_id = 9;
+  string brand = 10;
+  int32 status = 11;
+}
+
+message Order {
+  string order_uid = 1;
+  string track_number = 2;
+  string entry = 3;
+  Delivery delivery = 4;
+  Payment payment = 5;
+  repeated Item items = 6;
+  string locale = 7;
+  string internal_signature = 8;
+  string customer_id = 9;
+  string delivery_service = 10;
+  string shardkey = 11;
+  int32 sm_id = 12;
+  google.protobuf.Timestamp date_created = 13;
+  string oof_shard = 14;
+}
+
+message GetOrderRequest {
+  string order_uid = 1;
+}
+
+message GetOrderResponse {
+  Order order = 1;
+}
+
+service OrderService {
+  rpc GetOrder(GetOrderRequest) returns (GetOrderResponse) {
+    option (google.api.http) = {
+      get: "/order/{order_uid}"
+    };
+  }
+}
